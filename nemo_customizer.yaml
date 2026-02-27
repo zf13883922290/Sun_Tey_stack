@@ -1,0 +1,49 @@
+# ══════════════════════════════════════════════════════════════════
+# configs/nemo_customizer.yaml
+# NeMo Customizer 微调配置
+#
+# 通过 API 提交:
+# curl -X POST http://localhost:8080/v1/fine-tuning/jobs \
+#   -H "Content-Type: application/json" \
+#   -d @- << 'EOF'
+# {"config": "<此文件内容>", "dataset_id": "<数据集ID>"}
+# EOF
+# ══════════════════════════════════════════════════════════════════
+
+# 基础模型（从 NIM 已部署的模型中选）
+base_model: meta/llama-3.1-8b-instruct
+
+# 微调方法
+finetuning_type: lora        # lora | qlora | p-tuning | full
+
+# LoRA 超参数
+lora:
+  rank: 64
+  alpha: 128
+  dropout: 0.1
+  target_modules:
+    - q_proj
+    - v_proj
+    - k_proj
+    - o_proj
+
+# 训练超参数
+training:
+  learning_rate: 2.0e-4
+  num_epochs: 3
+  per_device_batch_size: 4
+  gradient_accumulation_steps: 4
+  warmup_ratio: 0.03
+  lr_scheduler: cosine
+  max_seq_length: 2048
+
+# 输出
+output:
+  model_name: sun_tey_v1
+  save_strategy: epoch         # 每个 epoch 保存检查点
+
+# 评估（微调过程中自动评估）
+evaluation:
+  enabled: true
+  eval_steps: 100
+  benchmark: mmlu              # 自动评测
