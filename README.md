@@ -52,8 +52,8 @@
 
 ```bash
 # 1. 克隆仓库
-git clone https://github.com/YOUR_USERNAME/sun_tey_stack.git
-cd sun_tey_stack
+git clone https://github.com/zf13883922290/Sun_Tey_stack.git
+cd Sun_Tey_stack
 
 # 2. 查询并配置 GPU UUID
 bash scripts/01_get_gpu_uuids.sh
