@@ -1,0 +1,14 @@
+.env
+*.bin
+*.safetensors
+*.gguf
+*.pt
+*.pth
+data/
+*.jsonl
+*.json.gz
+__pycache__/
+*.pyc
+.venv/
+*.log
+audit.jsonl
