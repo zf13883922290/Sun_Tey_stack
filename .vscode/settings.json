@@ -1,23 +1,11 @@
 {
-  // ── Sun_Tey Stack — VSCode + Cline 接入配置 ──────────────────────
-  // 
-  // 把这个文件放到你的项目的 .vscode/settings.json
-  // Cline 会自动连接本地 NIM + MCP Server
-
-  // ── Cline 连接 NIM ───────────────────────────────────────────────
   "cline.apiProvider": "openai",
-  "cline.openAiBaseUrl": "http://localhost:8000/v1",
-  "cline.openAiApiKey": "not-needed",
-  "cline.openAiModelId": "meta/llama-3.1-8b-instruct",
-
-  // ── Cline 连接 MCP Server（NeMo Agent Toolkit）───────────────────
+  "cline.openAiBaseUrl": "http://192.168.1.2:11434/v1",
+  "cline.openAiApiKey": "ollama",
+  "cline.openAiModelId": "llama3.1:8b",
   "cline.mcpServers": {
-    "sun_tey_tools": {
-      "url": "http://localhost:9000",
-      "transport": "sse"
+    "sun_tey_memory": {
+      "url": "http://192.168.1.5:9000"
     }
-  },
-
-  // ── Python 路径 ──────────────────────────────────────────────────
-  "python.defaultInterpreterPath": "/usr/bin/python3"
+  }
 }
