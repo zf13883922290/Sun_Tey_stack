@@ -1,0 +1,52 @@
+services:
+
+  nemo_customizer:
+    image: nvcr.io/nvidia/nemo-microservices/customizer:24.11
+    container_name: sun_tey_customizer
+    restart: unless-stopped
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=${GPU_UUID_1}
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - NGC_API_KEY=${NGC_API_KEY}
+    ports:
+      - "8080:8080"
+    volumes:
+      - training_data:/data
+      - trained_models:/models
+    networks:
+      - gpu1_net
+
+  nemo_data_designer:
+    image: nvcr.io/nvidia/nemo-microservices/data-designer:24.11
+    container_name: sun_tey_data_designer
+    restart: unless-stopped
+    environment:
+      - NGC_API_KEY=${NGC_API_KEY}
+    ports:
+      - "8081:8081"
+    volumes:
+      - training_data:/data
+    networks:
+      - gpu1_net
+
+  nemo_evaluator:
+    image: nvcr.io/nvidia/nemo-microservices/evaluator:24.11
+    container_name: sun_tey_evaluator
+    restart: unless-stopped
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=${GPU_UUID_1}
+      - NGC_API_KEY=${NGC_API_KEY}
+    ports:
+      - "8082:8082"
+    networks:
+      - gpu1_net
+
+volumes:
+  training_data:
+  trained_models:
+
+networks:
+  gpu1_net:
+    driver: bridge
