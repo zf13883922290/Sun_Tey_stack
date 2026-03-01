@@ -1,46 +1,42 @@
 #!/usr/bin/env bash
-# ══════════════════════════════════════════════════════════════════
-# scripts/03_check_health.sh
-#
-# 检查所有服务健康状态
-# ══════════════════════════════════════════════════════════════════
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+[ -f "$ROOT/.env" ] && source "$ROOT/.env"
 
 check() {
-    local name="$1"
-    local url="$2"
-    if curl -sf --max-time 5 "$url" > /dev/null 2>&1; then
-        echo "  ✅ ${name}"
-    else
-        echo "  ❌ ${name} (${url})"
-    fi
+    curl -sf --max-time 5 "$2" > /dev/null 2>&1 && \
+        echo "  ✅ $1" || echo "  ❌ $1 → $2"
+}
+
+check_svc() {
+    systemctl is-active --quiet "$2" 2>/dev/null && \
+        echo "  ✅ $1 (运行中)" || echo "  ⚠️  $1 (未运行)"
 }
 
 echo ""
-echo "── 健康检查 ─────────────────────────────────────────"
-
-# GPU 0 服务
-check "NIM 推理 API"   "http://localhost:8000/v1/health/ready"
+echo "── Ubuntu 本地服务 (192.168.1.5) ───────────────────"
+check "ChromaDB"       "http://localhost:8001/api/v2/heartbeat"
 check "MCP Server"     "http://localhost:9000/health"
-check "ChromaDB"       "http://localhost:8001/api/v1/heartbeat"
-
-# GPU 1 服务
-check "NeMo Customizer"    "http://localhost:8080/health"
-check "NeMo Data Designer" "http://localhost:8081/health"
-check "NeMo Evaluator"     "http://localhost:8082/health"
+check "vLLM API"       "http://localhost:8000/v1/models"
+check "LLaMA-Factory"  "http://localhost:7860"
 
 echo ""
+echo "── systemd 服务 ─────────────────────────────────────"
+check_svc "ChromaDB"      "sun_tey_chromadb"
+check_svc "MCP Server"    "sun_tey_mcp"
+check_svc "vLLM"          "sun_tey_vllm"
 
-# GPU 状态
+echo ""
+echo "── Windows 远程推理 (192.168.1.2) ──────────────────"
+check "Windows Ollama"  "http://192.168.1.2:11434/api/tags"
+
+echo ""
 echo "── GPU 状态 ─────────────────────────────────────────"
 nvidia-smi --query-gpu=index,name,utilization.gpu,memory.used,memory.total \
-    --format=csv,noheader | while IFS=',' read -r idx name util mem_used mem_total; do
-    echo "  GPU ${idx}: ${name}"
-    echo "    使用率: ${util} | 显存: ${mem_used} / ${mem_total}"
+    --format=csv,noheader | while IFS=',' read -r i n u mu mt; do
+    echo "  GPU${i}: ${n} | 使用率:${u} | 显存:${mu}/${mt}"
 done
 
-# 容器状态
 echo ""
-echo "── 容器状态 ─────────────────────────────────────────"
-docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "sun_tey|NAME"
-
+echo "── Docker 容器 ──────────────────────────────────────"
+docker ps --format "  {{.Names}}\t{{.Status}}" | grep sun_tey || echo "  无运行中容器"
 echo ""
