@@ -1,94 +1,75 @@
 #!/usr/bin/env bash
 # ══════════════════════════════════════════════════════════════════
-# scripts/02_deploy.sh
-#
-# 一键部署 Sun_Tey 全栈
-# 用法: bash scripts/02_deploy.sh [--inference-only | --training-only]
+# Sun_Tey Stack — 分步部署脚本
+# 用法: bash scripts/02_deploy.sh
 # ══════════════════════════════════════════════════════════════════
 
-set -e
-
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-ENV_FILE="$ROOT/.env"
+source "$ROOT/.env"
+
+step() { echo ""; echo "━━━ Step $1: $2 ━━━"; }
+ok()   { echo "✅ $1"; }
+fail() { echo "❌ $1"; exit 1; }
+ask()  { read -p "▶ $1 继续? [y/N] " r; [[ "$r" == "y" ]] || exit 0; }
 
 echo ""
 echo "╔══════════════════════════════════════════════════╗"
-echo "║         Sun_Tey Stack — 部署启动               ║"
+echo "║         Sun_Tey Stack — 分步部署               ║"
 echo "╚══════════════════════════════════════════════════╝"
-echo ""
 
-# ── 检查 .env ─────────────────────────────────────────────────────────────
-if [ ! -f "$ENV_FILE" ]; then
-    echo "❌ .env 文件不存在。请先运行 bash scripts/01_get_gpu_uuids.sh"
-    exit 1
-fi
+# ── Step 1: 环境检查 ───────────────────────────────────────────
+step 1 "环境检查"
+nvidia-smi --query-gpu=name --format=csv,noheader && ok "GPU 正常" || fail "GPU 异常"
+docker info > /dev/null 2>&1 && ok "Docker 正常" || fail "Docker 异常"
+[[ -n "$GPU_UUID_0" ]] && ok "GPU UUID 已配置" || fail "请先运行 01_get_gpu_uuids.sh"
+[[ -n "$NGC_API_KEY" ]] && ok "NGC API Key 已配置" || fail "请在 .env 填入 NGC_API_KEY"
+ask "Step 1 完成"
 
-source "$ENV_FILE"
+# ── Step 2: ChromaDB ───────────────────────────────────────────
+step 2 "ChromaDB 向量记忆数据库"
+cd "$ROOT/containers/gpu0"
+docker compose up -d chromadb
+sleep 5
+curl -sf http://localhost:8001/api/v2/heartbeat > /dev/null && ok "ChromaDB 正常" || fail "ChromaDB 启动失败"
+ask "Step 2 完成"
 
-if [ -z "$GPU_UUID_0" ]; then
-    echo "❌ GPU_UUID_0 未设置。请先运行 bash scripts/01_get_gpu_uuids.sh"
-    exit 1
-fi
+# ── Step 3: MCP Server ─────────────────────────────────────────
+step 3 "MCP Server"
+sudo systemctl enable sun_tey_mcp 2>/dev/null
+sudo systemctl restart sun_tey_mcp
+sleep 5
+curl -sf http://localhost:9000/health > /dev/null && ok "MCP Server 正常" || fail "MCP Server 启动失败"
+ask "Step 3 完成"
 
-if [ -z "$NGC_API_KEY" ]; then
-    echo "⚠️  NGC_API_KEY 未设置"
-    echo "   请编辑 .env 填入你的 NGC API Key"
-    echo "   获取方式: https://ngc.nvidia.com/ → Profile → Setup → API Key"
-    read -p "   按 Enter 继续（NIM 需要 Key，MCP/ChromaDB 不需要）..."
-fi
+# ── Step 4: NIM 推理镜像下载 ───────────────────────────────────
+step 4 "NIM 推理镜像下载 (约 20GB，需要时间)"
+echo "镜像: nvcr.io/nim/meta/llama-3.1-8b-instruct:latest"
+echo "下载完成前请勿关闭终端"
+ask "开始下载 NIM"
+docker pull nvcr.io/nim/meta/llama-3.1-8b-instruct:latest && ok "NIM 镜像下载完成" || fail "NIM 下载失败"
+ask "Step 4 完成"
 
-# ── 解析参数 ──────────────────────────────────────────────────────────────
-MODE="all"
-case "${1:-}" in
-    --inference-only) MODE="inference" ;;
-    --training-only)  MODE="training"  ;;
-esac
+# ── Step 5: 启动 NIM ───────────────────────────────────────────
+step 5 "启动 NIM 推理服务"
+cd "$ROOT/containers/gpu0"
+docker compose up -d nim
+echo "等待 NIM 初始化 (首次约5-10分钟)..."
+for i in $(seq 1 20); do
+    sleep 30
+    curl -sf http://localhost:8000/v1/health/ready > /dev/null && ok "NIM 就绪!" && break
+    echo "  等待中... ($((i*30))秒)"
+done
+ask "Step 5 完成"
 
-# ── NGC 登录 ──────────────────────────────────────────────────────────────
-if [ -n "$NGC_API_KEY" ]; then
-    echo "📦 登录 NGC 容器仓库..."
-    echo "$NGC_API_KEY" | docker login nvcr.io \
-        --username '$oauthtoken' --password-stdin && \
-        echo "✅ NGC 登录成功" || echo "⚠️  NGC 登录失败（继续）"
-fi
+# ── Step 6: NeMo Framework 下载 ────────────────────────────────
+step 6 "NeMo Framework 下载 (约 20GB)"
+echo "镜像: nvcr.io/nvidia/nemo:24.07"
+ask "开始下载 NeMo"
+docker pull nvcr.io/nvidia/nemo:24.07 && ok "NeMo 下载完成" || fail "NeMo 下载失败"
+ask "Step 6 完成"
 
-# ── 启动 GPU 0 推理栈 ──────────────────────────────────────────────────────
-if [ "$MODE" != "training" ]; then
-    echo ""
-    echo "🚀 启动 GPU 0 容器（推理栈）..."
-    cd "$ROOT/containers/gpu0"
-    docker compose --env-file "$ENV_FILE" up -d
-    echo "✅ GPU 0 容器启动完成"
-fi
-
-# ── 启动 GPU 1 训练栈 ──────────────────────────────────────────────────────
-if [ "$MODE" != "inference" ]; then
-    echo ""
-    echo "🚀 启动 GPU 1 容器（训练栈）..."
-    cd "$ROOT/containers/gpu1"
-    docker compose --env-file "$ENV_FILE" up -d
-    echo "✅ GPU 1 容器启动完成"
-fi
-
-# ── 等待服务就绪 ───────────────────────────────────────────────────────────
-echo ""
-echo "⏳ 等待服务启动..."
-echo "   NIM 首次启动需要 5-30 分钟（编译优化）"
-echo "   其他服务通常 30-60 秒内就绪"
-echo ""
-sleep 10
-
-# ── 运行健康检查 ───────────────────────────────────────────────────────────
+# ── Step 7: 完成 ───────────────────────────────────────────────
+step 7 "全部完成"
 bash "$ROOT/scripts/03_check_health.sh"
-
 echo ""
-echo "╔══════════════════════════════════════════════════╗"
-echo "║            服务访问地址                         ║"
-echo "╠══════════════════════════════════════════════════╣"
-echo "║  NIM 推理 API:      http://localhost:8000/v1    ║"
-echo "║  MCP Server:        http://localhost:9000       ║"
-echo "║  ChromaDB:          http://localhost:8001       ║"
-echo "║  NeMo Customizer:   http://localhost:8080       ║"
-echo "║  NeMo Data Designer:http://localhost:8081       ║"
-echo "║  NeMo Evaluator:    http://localhost:8082       ║"
-echo "╚══════════════════════════════════════════════════╝"
+echo "🎉 Sun_Tey Stack 部署完成！"
